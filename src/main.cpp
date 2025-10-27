@@ -6,45 +6,93 @@
 #define LED_PIN 13
 #define SWITCH_PIN 15
 
-QueueHandle_t cola_sensor;  // Envía lecturas del giroscopio
+#define TIEMPO_CICLO 3000 // Tiempo del ciclo esperado para el molde en ms
+#define CICLOS_FALLIDOS_PERMITIDOS 3
 
-void leer_boton(void *p){
-  int estado_boton = 0;
-  while (1) {
-    int estado_boton = digitalRead(SWITCH_PIN);
-    xQueueSend(cola_sensor, &estado_boton, portMAX_DELAY);
-    vTaskDelay(200 / portTICK_PERIOD_MS); // Leer cada 200 ms
+QueueHandle_t cola_sensor;   // Envía lecturas del sensor de la maquina
+QueueHandle_t cola_flg_paro; // Envía banderas con detección de paro
+
+void leer_sensor(void *p)
+{
+  char estado_sensor = 0;
+  while (1)
+  {
+    estado_sensor = digitalRead(SWITCH_PIN);
+    xQueueSend(cola_sensor, &estado_sensor, portMAX_DELAY);
+    vTaskDelay(100 / portTICK_PERIOD_MS); // Leer cada 100 ms
   }
 }
 
-void controlar_led(void *p){
-  int estado_recibido = 0;
-  while (1) {
-    if (xQueueReceive(cola_sensor, &estado_recibido, portMAX_DELAY) == pdTRUE) {
-      if (estado_recibido == HIGH) {
-        digitalWrite(LED_PIN, HIGH);
-        Serial.println("LED ON");
-      } else {
-        digitalWrite(LED_PIN, LOW);
-        Serial.println("LED OFF");
-      }
+void deteccion_paro(void *p)
+{
+  unsigned long tiempo_actual = xTaskGetTickCount() * portTICK_PERIOD_MS;
+  unsigned long tiempo_ultimo_cambio = xTaskGetTickCount() * portTICK_PERIOD_MS;
+  unsigned long tiempo_transcurrido = 0;
+  unsigned long tiempo_ciclo = 0;
+  char estado_ciclo = 0;
+  char estado_anterior = 0;
+  char estado_actual = 0;
+  char flg_estado_paro = 0;
+
+  while (1)
+  {
+    xQueueReceive(cola_sensor, &estado_actual, portMAX_DELAY);
+    tiempo_actual = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    if (estado_actual != estado_anterior)
+    {
+      estado_anterior = estado_actual;
+      tiempo_ultimo_cambio = xTaskGetTickCount() * portTICK_PERIOD_MS;
+      flg_estado_paro = 0;
+      Serial.println("Cambio detectado en el sensor.");
+    }
+    tiempo_transcurrido = tiempo_actual - tiempo_ultimo_cambio;
+    if (tiempo_transcurrido >= (TIEMPO_CICLO * CICLOS_FALLIDOS_PERMITIDOS))
+    {
+      Serial.println("Se dectecto un paro de la máquina!");
+      Serial.print("Tiempo sin cambio: ");
+      Serial.print(tiempo_transcurrido / 1000);
+      Serial.println(" segundos.");
+      flg_estado_paro = 1;
+    }
+    xQueueSend(cola_flg_paro, &flg_estado_paro, portMAX_DELAY);
+    vTaskDelay(100 / portTICK_PERIOD_MS); // Comprobar cada 100 ms
+  }
+}
+
+void controlar_led(void *p)
+{
+  char flg_recibida = 0;
+  digitalWrite(LED_PIN, LOW); // Iniciar con LED apagado
+  while (1)
+  {
+    xQueueReceive(cola_flg_paro, &flg_recibida, portMAX_DELAY);
+    if (flg_recibida == 1)
+    {
+      digitalWrite(LED_PIN, HIGH); // Encender LED si hay paro
+    }
+    else
+    {
+      digitalWrite(LED_PIN, LOW); // Apagar LED si no hay paro
     }
   }
 }
 
-void setup() {
+void setup()
+{
   // put your setup code here, to run once:
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
   pinMode(SWITCH_PIN, INPUT);
 
-  cola_sensor = xQueueCreate(10, sizeof(int));
-  
-  xTaskCreate(leer_boton, "Lectura_Boton", configMINIMAL_STACK_SIZE*10, NULL, 1, NULL);
-  xTaskCreate(controlar_led, "Control_LED", configMINIMAL_STACK_SIZE*10, NULL, 1, NULL);
+  cola_sensor = xQueueCreate(10, sizeof(char));
+  cola_flg_paro = xQueueCreate(10, sizeof(char));
+
+  xTaskCreate(leer_sensor, "Lectura_Boton", configMINIMAL_STACK_SIZE * 10, NULL, 1, NULL);
+  xTaskCreate(deteccion_paro, "Deteccion_Paro", configMINIMAL_STACK_SIZE * 10, NULL, 1, NULL);
+  xTaskCreate(controlar_led, "Control_LED", configMINIMAL_STACK_SIZE * 10, NULL, 1, NULL);
 }
 
-void loop() {
+void loop()
+{
   vTaskDelete(NULL);
 }
-
