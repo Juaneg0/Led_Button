@@ -2,6 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include <WiFi.h>
 
 #define LED_PIN 13
 #define SWITCH_PIN 15
@@ -9,8 +10,36 @@
 #define TIEMPO_CICLO 5000 // Tiempo del ciclo esperado para el molde en ms
 #define CICLOS_FALLIDOS_PERMITIDOS 3
 
+// --- Configuración WiFi y NTP ---
+const char *ssid = "Farmaplast";
+const char *password = "FPfpnetwork10";
+const char *ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = -5 * 3600; // Colombia
+const int daylightOffset_sec = 0;
+
 QueueHandle_t cola_sensor;   // Envía lecturas del sensor de la maquina
 QueueHandle_t cola_flg_paro; // Envía banderas con detección de paro
+
+// --------------------- Funciones varias ---------------------
+void imprimirHoraActual(const char *mensaje)
+{
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo))
+  {
+    Serial.printf("[%04d-%02d-%02d %02d:%02d:%02d] %s\n",
+                  timeinfo.tm_year + 1900,
+                  timeinfo.tm_mon + 1,
+                  timeinfo.tm_mday,
+                  timeinfo.tm_hour,
+                  timeinfo.tm_min,
+                  timeinfo.tm_sec,
+                  mensaje);
+  }
+  else
+  {
+    Serial.println("Error obteniendo hora NTP");
+  }
+}
 
 void leer_sensor(void *p)
 {
@@ -66,6 +95,11 @@ void deteccion_paro(void *p)
     {
       flg_estado_paro = 1;
       Serial.println("Se dectecto un paro de la máquina!");
+      imprimirHoraActual("Hora de detección de paro:");
+    }
+
+    if (flg_estado_paro == 1)
+    {
       Serial.print("Tiempo sin cambio: ");
       Serial.print(tiempo_transcurrido / 1000);
       Serial.println(" segundos.");
@@ -83,14 +117,7 @@ void controlar_led(void *p)
   while (1)
   {
     xQueueReceive(cola_flg_paro, &flg_recibida, portMAX_DELAY);
-    if (flg_recibida == 1)
-    {
-      digitalWrite(LED_PIN, HIGH); // Encender LED si hay paro
-    }
-    else
-    {
-      digitalWrite(LED_PIN, LOW); // Apagar LED si no hay paro
-    }
+    digitalWrite(LED_PIN, flg_recibida ? HIGH : LOW);
   }
 }
 
@@ -100,6 +127,29 @@ void setup()
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
   pinMode(SWITCH_PIN, INPUT);
+
+  // --- Conexión WiFi ---
+  WiFi.begin(ssid, password);
+  Serial.print("Conectando a WiFi");
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi conectado ✅");
+
+  // --- Configurar NTP ---
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  Serial.println("Sincronizando hora NTP...");
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo))
+  {
+    Serial.println(&timeinfo, "Hora sincronizada: %Y-%m-%d %H:%M:%S");
+  }
+  else
+  {
+    Serial.println("Error al obtener hora inicial.");
+  }
 
   cola_sensor = xQueueCreate(10, sizeof(char));
   cola_flg_paro = xQueueCreate(10, sizeof(char));
