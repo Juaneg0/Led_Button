@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <WiFi.h>
+#include <PubSubClient.h>
 
 #define LED_PIN 13
 #define SWITCH_PIN 15
@@ -10,15 +11,27 @@
 #define TIEMPO_CICLO 5000 // Tiempo del ciclo esperado para el molde en ms
 #define CICLOS_FALLIDOS_PERMITIDOS 3
 
-// --- Configuración WiFi y NTP ---
+// --- Configuración WiFi  ---
 const char *ssid = "Farmaplast";
 const char *password = "FPfpnetwork10";
+// --- Configuración MQTT ---
+const char *mqtt_device = "TTGO_Juanes";
+const char *mqtt_server = "10.0.201.128";
+// --- Configuración NTP ---
 const char *ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = -5 * 3600; // Colombia
 const int daylightOffset_sec = 0;
 
 QueueHandle_t cola_sensor;   // Envía lecturas del sensor de la maquina
 QueueHandle_t cola_flg_paro; // Envía banderas con detección de paro
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+#define MSG_BUFFER_SIZE (50)
+char msg[MSG_BUFFER_SIZE];
+
+float ficticious_Value = 20.0;
 
 // --------------------- Funciones varias ---------------------
 void imprimirHoraActual(const char *mensaje)
@@ -38,6 +51,73 @@ void imprimirHoraActual(const char *mensaje)
   else
   {
     Serial.println("Error obteniendo hora NTP");
+  }
+}
+
+void setup_wifi()
+{
+  delay(10);
+  Serial.println();
+  Serial.print("Conectando a ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+  Serial.print("Conectando a WiFi");
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi conectado ✅");
+}
+
+void callback(char *topic, byte *payload, unsigned int length)
+{
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++)
+  {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+void reconnect()
+{
+  // Loop until we're reconnected
+  while (!client.connected())
+  {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect(mqtt_device))
+    {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      client.publish("outTopic", "hello world");
+      // ... and resubscribe
+      client.subscribe("inTopic");
+    }
+    else
+    {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      vTaskDelay(5000 / portTICK_PERIOD_MS); // Wait 5 seconds before retrying
+    }
+  }
+}
+
+// --------------------- Tareas ---------------------
+void conexion_mqtt(void *p)
+{
+  while (1)
+  {
+    if (!client.connected())
+      reconnect();
+    client.publish("outTopic", "hello world");
+    client.loop();
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }
 
@@ -129,14 +209,9 @@ void setup()
   pinMode(SWITCH_PIN, INPUT);
 
   // --- Conexión WiFi ---
-  WiFi.begin(ssid, password);
-  Serial.print("Conectando a WiFi");
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi conectado ✅");
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
 
   // --- Configurar NTP ---
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -154,6 +229,7 @@ void setup()
   cola_sensor = xQueueCreate(10, sizeof(char));
   cola_flg_paro = xQueueCreate(10, sizeof(char));
 
+  xTaskCreate(conexion_mqtt, "Conexion_MQTT", configMINIMAL_STACK_SIZE * 10, NULL, 1, NULL);
   xTaskCreate(leer_sensor, "Lectura_Boton", configMINIMAL_STACK_SIZE * 10, NULL, 1, NULL);
   xTaskCreate(deteccion_paro, "Deteccion_Paro", configMINIMAL_STACK_SIZE * 10, NULL, 1, NULL);
   xTaskCreate(controlar_led, "Control_LED", configMINIMAL_STACK_SIZE * 10, NULL, 1, NULL);
