@@ -19,7 +19,7 @@
 const char *ssid = "Farmaplast";
 const char *password = "FPfpnetwork10";
 // --- Configuración MQTT ---
-const char *mqtt_device = "TTGO_Juanes";  // Nombre del dispositivo MQTT
+const char *mqtt_device = "TTGO_Juan";    // Nombre del dispositivo MQTT
 const char *mqtt_server = "10.0.201.128"; // IP del broker MQTT
 // --- Configuración NTP ---
 const char *ntpServer1 = "time.google.com";
@@ -55,6 +55,8 @@ void setup_wifi()
     Serial.print(".");
   }
   Serial.println("\nWiFi conectado");
+  Serial.print("Dirección IP: ");
+  Serial.println(WiFi.localIP());
 }
 
 void callback(char *topic, byte *payload, unsigned int length)
@@ -278,6 +280,9 @@ void setup()
     Serial.println("Error al obtener hora inicial.");
   }
 
+  Serial.println("Inicializacion terminada.");
+
+  // --- Crear colas ---
   cola_sensor = xQueueCreate(10, sizeof(char));
   cola_tiempo_ciclo = xQueueCreate(10, sizeof(unsigned long));
   cola_tiempo_paro = xQueueCreate(10, sizeof(struct tm));
