@@ -11,6 +11,7 @@
 
 #define TIEMPO_CICLO 5000 // Tiempo del ciclo esperado para el molde en ms
 #define CICLOS_FALLIDOS_PERMITIDOS 2
+#define MAIN_TOPIC "Inyectoras"
 #define NUM_MAQUINA "Inyectora_1"
 
 #define MSG_BUFFER_SIZE (40)
@@ -207,8 +208,8 @@ void publish_mqtt(void *p)
   struct tm tiempo_paro_maquina;
 
   // Se crean los topics MQTT
-  snprintf(Topic_Tiempo_Ciclo, MSG_BUFFER_SIZE, "%s/tiempo_ciclo", NUM_MAQUINA);
-  snprintf(Topic_Tiempo_Paro, MSG_BUFFER_SIZE, "%s/tiempo_paro", NUM_MAQUINA);
+  snprintf(Topic_Tiempo_Ciclo, MSG_BUFFER_SIZE, "%s/%s/tiempo_ciclo", MAIN_TOPIC, NUM_MAQUINA);
+  snprintf(Topic_Tiempo_Paro, MSG_BUFFER_SIZE, "%s/%s/tiempo_paro", MAIN_TOPIC, NUM_MAQUINA);
 
   while (1)
   {
